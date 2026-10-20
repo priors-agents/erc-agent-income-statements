@@ -1,4 +1,4 @@
-# Agent Income Statements (draft ERC)
+# ERC-8458: Agent Income Statements (draft)
 
 Public, per-transfer income statements for ERC-8004 agents, carried as ordinary entries of the ERC-8004 Reputation
 Registry. A statement commits, with a Merkle root, to the incoming transfers of one ERC-20 token to the agent's
@@ -13,14 +13,14 @@ statement's root on chain. No new core contract is required.
 the agent's `payTo`, are the motivating case; a log cannot show how a transfer was settled, so the totals are not called
 x402 revenue.
 
-This proposal follows the ERC-8004 credit history profile (`docs/ERC-8004-CREDIT.md` in github.com/priors-agents/priors)
-and reuses its encoding: canonical JSON, `data:` URIs, chained windows, Merkle roots, light and full checks. It should
-be read after that profile. The ERC text repeats what it needs, so that it stands alone.
+This proposal follows ERC-8449, the ERC-8004 credit history profile (`docs/ERC-8004-CREDIT.md` in
+github.com/priors-agents/priors), and reuses its encoding: canonical JSON, `data:` URIs, chained windows, Merkle roots,
+light and full checks. It should be read after that profile. The ERC text repeats what it needs, so that it stands
+alone.
 
-**Status: draft, not submitted.** The text is in
-[`ERCS/erc-draft_agent_income_statements.md`](ERCS/erc-draft_agent_income_statements.md). Its `eip: 99909` is a
-placeholder: the ERC editors assign the real number when the pull request is opened on ethereum/ERCs. Discussion will
-open on Ethereum Magicians first.
+**Status: draft, not submitted.** The text is in [`ERCS/erc-8458.md`](ERCS/erc-8458.md). ERC-8458 is the next number
+that was free on 2026-10-20; the ERC editors confirm it, or assign another, when the pull request is opened on
+ethereum/ERCs. Discussion opens on Ethereum Magicians first.
 
 ## Why
 
@@ -36,7 +36,7 @@ agent with another address's income.
 
 | Path | What |
 |---|---|
-| `ERCS/erc-draft_agent_income_statements.md` | The ERC text, in the ethereum/ERCs template |
+| `ERCS/erc-8458.md` | The ERC text, in the ethereum/ERCs template |
 | `src/IIncomeStatementVerifier.sol` | The optional verifier's interface |
 | `src/IncomeStatementVerifier.sol` | A reference verifier (not audited) |
 | `src/IncomeStatementCodec.sol` | The file's canonical encoding, its `data:` URI, the leaf hash and the root |
@@ -65,12 +65,11 @@ CI runs all three on every push (`.github/workflows/ci.yml`).
 
 ## Related drafts
 
-- Credit history for ERC-8004 agents: a profile of the ERC-8004 Reputation Registry for loan outcomes
+- ERC-8449 Credit history for ERC-8004 agents: a profile of the ERC-8004 Reputation Registry for loan outcomes
   (`docs/ERC-8004-CREDIT.md` in github.com/priors-agents/priors). This profile shares its encoding, its chained windows
   and its light and full checks, with a different tag and leaf.
-- Agent Credit Lines: one interface to borrow, repay and default against any lender to agent identities (to be
-  published as github.com/priors-agents/erc-agent-credit-lines). Income statements are what an income-sized line is
-  sized on.
+- ERC-8450 Agent Credit Lines: one interface to borrow, repay and default against any lender to agent identities
+  (github.com/priors-agents/ERC-8450). Income statements are what an income-sized line is sized on.
 
 ## Related work
 
