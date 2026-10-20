@@ -20,7 +20,8 @@ alone.
 
 **Status: draft, not submitted.** The text is in [`ERCS/erc-8458.md`](ERCS/erc-8458.md). ERC-8458 is the next number
 that was free on 2026-10-20; the ERC editors confirm it, or assign another, when the pull request is opened on
-ethereum/ERCs. Discussion opens on Ethereum Magicians first.
+ethereum/ERCs. Discussion: raised first on ERC-8434's thread, before a thread of its own
+([post 30](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/30)).
 
 ## Why
 
