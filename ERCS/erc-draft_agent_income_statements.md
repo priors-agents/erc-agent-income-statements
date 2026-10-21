@@ -1,5 +1,5 @@
 ---
-eip: 8458
+eip: 99909
 title: Agent Income Statements
 description: Public statements of what an agent wallet received in one token, one leaf per transfer, chained and rebuildable from the token logs
 author: Priors contributors (@priors-agents)
