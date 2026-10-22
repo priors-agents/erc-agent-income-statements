@@ -4,7 +4,8 @@ pragma solidity ^0.8.20;
 import {IChainHistory} from "../../src/IChainHistory.sol";
 
 /// A recorded chain for one agent of one identity registry: block times on a fixed 12-second clock, the agent's
-/// owner and wallet changes at log positions, and Transfer logs of any asset. Everything is added in log order.
+/// owner and wallet changes at log positions, its other metadata by block, and Transfer logs of any asset. Everything is
+/// added in log order.
 contract MockChainHistory is IChainHistory {
     struct Change {
         uint64 blockNumber;
@@ -24,8 +25,16 @@ contract MockChainHistory is IChainHistory {
     uint64 public immutable firstBlock;
     uint64 public immutable firstTime;
 
+    /// A setMetadata call of the agent for a key other than agentWallet: not a change log.
+    struct MetadataChange {
+        uint64 blockNumber;
+        string key;
+        bytes value;
+    }
+
     Change[] internal _changes;
     AssetLog[] internal _transfers;
+    MetadataChange[] internal _metadata;
     mapping(address => uint64) internal _lastIndex; // getLastIndex(agentId, client) on the Reputation Registry
 
     constructor(address registry_, uint256 agentId_, uint64 firstBlock_, uint64 firstTime_) {
@@ -46,6 +55,10 @@ contract MockChainHistory is IChainHistory {
     /// A wallet change with no MetadataSet log: what a registry outside this profile could do.
     function setWalletWithoutLog(uint64 b, uint32 l, address wallet) external {
         _changes.push(Change(b, l, false, wallet, false));
+    }
+
+    function setMetadata(uint64 b, string calldata key, bytes calldata value) external {
+        _metadata.push(MetadataChange(b, key, value));
     }
 
     function setLastIndex(address client, uint64 n) external {
@@ -77,6 +90,13 @@ contract MockChainHistory is IChainHistory {
         if (reg != registry || id != agentId) return address(0);
         for (uint256 i; i < _changes.length && _changes[i].blockNumber <= b; ++i) {
             if (!_changes[i].isOwner) wallet = _changes[i].value;
+        }
+    }
+
+    function metadataAt(address reg, uint256 id, string calldata key, uint64 b) external view returns (bytes memory v) {
+        if (reg != registry || id != agentId) return v;
+        for (uint256 i; i < _metadata.length && _metadata[i].blockNumber <= b; ++i) {
+            if (keccak256(bytes(_metadata[i].key)) == keccak256(bytes(key))) v = _metadata[i].value;
         }
     }
 

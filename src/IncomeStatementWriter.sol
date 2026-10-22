@@ -187,7 +187,9 @@ contract IncomeStatementWriter {
     }
 
     function _leaf(Statement memory s, Anchor memory a) private pure returns (bytes32) {
-        return Codec.leafHash(s.chainId, s.asset, s.agentId, a.payer, s.payTo, a.amount, a.paidAt, a.txHash, a.logIndex);
+        return Codec.leafHash(
+            s.chainId, s.asset, s.agentId, s.owner, a.payer, s.payTo, a.amount, a.paidAt, a.txHash, a.logIndex
+        );
     }
 
     /// @dev SHORTCUT: quadratic in the window's payments; a reference, not for windows of thousands of payments.

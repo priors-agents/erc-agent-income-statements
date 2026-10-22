@@ -236,11 +236,12 @@ library IncomeStatementCodec {
 
     // ------------------------------------------------------------- leaves and root
 
-    /// @notice keccak256(bytes.concat(keccak256(abi.encode(the nine fields)))), as OpenZeppelin's MerkleProof expects.
+    /// @notice keccak256(bytes.concat(keccak256(abi.encode(the ten fields)))), as OpenZeppelin's MerkleProof expects.
     function leafHash(
         uint256 chainId,
         address asset,
         uint256 agentId,
+        address owner,
         address payer,
         address payTo,
         uint256 amount,
@@ -249,7 +250,9 @@ library IncomeStatementCodec {
         uint32 logIndex
     ) internal pure returns (bytes32) {
         return keccak256(
-            bytes.concat(keccak256(abi.encode(chainId, asset, agentId, payer, payTo, amount, paidAt, txHash, logIndex)))
+            bytes.concat(
+                keccak256(abi.encode(chainId, asset, agentId, owner, payer, payTo, amount, paidAt, txHash, logIndex))
+            )
         );
     }
 

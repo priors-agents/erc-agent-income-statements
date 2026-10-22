@@ -27,7 +27,7 @@ contract IncomeStatementVerifierTest is Vectors {
 
     function test_supportsInterface() public view {
         assertTrue(verifier.supportsInterface(type(IIncomeStatementVerifier).interfaceId));
-        assertEq(type(IIncomeStatementVerifier).interfaceId, bytes4(0xfc162870)); // as the ERC text states it
+        assertEq(type(IIncomeStatementVerifier).interfaceId, bytes4(0xcc3df75f)); // as the ERC text states it
         assertTrue(verifier.supportsInterface(0x01ffc9a7));
         assertFalse(verifier.supportsInterface(0xffffffff));
         assertEq(
@@ -47,7 +47,7 @@ contract IncomeStatementVerifierTest is Vectors {
         }
     }
 
-    function test_leafHash_isTheDoubleHashOfTheNineFields() public view {
+    function test_leafHash_isTheDoubleHashOfTheTenFields() public view {
         IIncomeStatementVerifier.Payment memory p = _payments()[2];
         bytes32 expected = keccak256(
             bytes.concat(
@@ -56,6 +56,7 @@ contract IncomeStatementVerifierTest is Vectors {
                         uint256(1),
                         ASSET,
                         uint256(9007199254740993),
+                        OWNER,
                         address(0x00000000000000000000000000000000000000B1),
                         PAY_TO,
                         uint256(1000000),
@@ -107,6 +108,9 @@ contract IncomeStatementVerifierTest is Vectors {
         assertFalse(_verify(ROOT, proof, f));
         f = _payments()[2];
         f.asset = address(0xa55e8);
+        assertFalse(_verify(ROOT, proof, f));
+        f = _payments()[2];
+        f.owner = address(0x41f);
         assertFalse(_verify(ROOT, proof, f));
         f = _payments()[2];
         f.payer = address(0xb9);
@@ -192,6 +196,24 @@ contract IncomeStatementVerifierTest is Vectors {
         }
     }
 
+    /// The owner's top-up, the transfer into an agent's wallet most often not income: refused like the other three,
+    /// even against a root whose tree holds its leaf hash.
+    function test_verifyPayment_ownersTransfer_returnsFalseEvenWithAValidProof() public {
+        IIncomeStatementVerifier.Payment memory real = _payments()[0];
+        IIncomeStatementVerifier.Payment memory topUp = _paymentOf(_window()[2]); // the owner's 500000
+        assertEq(topUp.payer, OWNER);
+
+        bytes32[] memory h = new bytes32[](2);
+        h[0] = verifier.leafHash(real);
+        h[1] = verifier.leafHash(topUp);
+        bytes32 root = _root(h);
+
+        vm.recordLogs();
+        assertFalse(_verify(root, _proofOf(h, 1), topUp));
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertTrue(_verify(root, _proofOf(h, 0), real)); // the same tree proves the real payment
+    }
+
     function test_verifyPayment_anyCaller() public {
         IIncomeStatementVerifier.Payment[] memory p = _payments();
         address[3] memory callers = [makeAddr("lender"), makeAddr("stranger"), p[0].payer];
@@ -220,6 +242,7 @@ contract IncomeStatementVerifierTest is Vectors {
                 chainId: CHAIN_ID,
                 asset: ASSET,
                 agentId: AGENT,
+                owner: OWNER,
                 payer: vm.addr(r % 1e18 + 1),
                 payTo: PAY_TO,
                 amount: r % 1e12 + 1,

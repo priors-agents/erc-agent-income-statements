@@ -179,7 +179,20 @@ contract IncomeStatementReaderTest is Vectors {
     }
 
     function _leaf(Statement memory s, Anchor memory a) internal pure returns (bytes32) {
-        return Codec.leafHash(s.chainId, s.asset, s.agentId, a.payer, s.payTo, a.amount, a.paidAt, a.txHash, a.logIndex);
+        return Codec.leafHash(
+            s.chainId, s.asset, s.agentId, s.owner, a.payer, s.payTo, a.amount, a.paidAt, a.txHash, a.logIndex
+        );
+    }
+
+    /// The payment a contract would hand the verifier for leaf `a` of `s`.
+    function _paymentFrom(Statement memory s, Anchor memory a)
+        internal
+        pure
+        returns (IIncomeStatementVerifier.Payment memory)
+    {
+        return IIncomeStatementVerifier.Payment(
+            s.chainId, s.asset, s.agentId, s.owner, a.payer, s.payTo, a.amount, a.paidAt, a.txHash, a.logIndex
+        );
     }
 
     /// Seq 1 with only the given leaves (in order): count, amount, payers, root and anchors made to agree with them.
@@ -785,6 +798,45 @@ contract IncomeStatementReaderTest is Vectors {
         checker.rebuild(_ctx(), s);
     }
 
+    /// A writer that counted the owner's 500000 top-up: six leaves and a root over them, with anchors that pass every
+    /// light check. The verifier will not prove the top-up against that root, though it proves the five payments, and
+    /// a full read rejects the statement.
+    function test_rebuild_ownerTopUpInTheRoot_refusedByTheVerifierAndTheFullCheck() public {
+        Statement memory s = _s1().statement;
+        Anchor memory topUp = Anchor(OWNER, 500000, h.blockTime(26000500), 26000500, bytes32(uint256(0xa6)), 2);
+        Anchor[] memory leaves = new Anchor[](6);
+        (leaves[0], leaves[1], leaves[2]) = (s.anchors[0], s.anchors[1], topUp);
+        (leaves[3], leaves[4], leaves[5]) = (s.anchors[2], s.anchors[3], s.anchors[4]);
+        bytes32[] memory hashes = new bytes32[](leaves.length);
+        for (uint256 i; i < leaves.length; ++i) {
+            hashes[i] = _leaf(s, leaves[i]);
+        }
+        s.root = _root(hashes);
+        s.count = 6;
+        s.amount += 500000;
+        s.value = s.amount;
+        s.payers = 5; // the owner among them
+        Anchor[] memory latest = new Anchor[](2);
+        (latest[0], latest[1]) = (leaves[4], leaves[5]);
+        s.anchors = latest;
+
+        IncomeStatementVerifier v = new IncomeStatementVerifier();
+        assertFalse(v.verifyPayment(s.root, _proofOf(hashes, 2), _paymentFrom(s, topUp)));
+        for (uint256 i; i < leaves.length; ++i) {
+            if (i != 2) assertTrue(v.verifyPayment(s.root, _proofOf(hashes, i), _paymentFrom(s, leaves[i])));
+        }
+
+        Writer.Output[] memory o = new Writer.Output[](1);
+        o[0].statement = s;
+        o[0].file = Codec.encode(s);
+        o[0].feedbackURI = string(Codec.dataURI(o[0].file));
+        o[0].feedbackHash = keccak256(o[0].file);
+        Checker.Chain memory c = _chain(o);
+        assertEq(uint256(checker.readChain(_ctx(), c, false).status), uint256(Checker.Status.Sampled));
+        vm.expectRevert(Checker.RebuildMismatch.selector);
+        checker.readChain(_ctx(), c, true);
+    }
+
     function test_rebuild_totalsRootAndAnchorsAreRecomputed() public {
         Statement[4] memory bad;
         for (uint256 i; i < bad.length; ++i) {
@@ -1020,6 +1072,69 @@ contract IncomeStatementReaderTest is Vectors {
         assertEq(uint256(i.status), uint256(Checker.Status.NoData));
     }
 
+    // ------------------------------------------------------------- reading: the writer the agent names
+
+    function _name(uint64 b, bytes memory value) internal {
+        h.setMetadata(b, "incomeWriter", value);
+    }
+
+    function test_namedWriter_isTheKeysAddress_fromTheBlockItIsSet() public {
+        assertEq(checker.namedWriter(_ctx(), AGENT, LAST), address(0)); // unset
+        _name(26000001, abi.encode(WRITER));
+        assertEq(checker.namedWriter(_ctx(), AGENT, 26000000), address(0));
+        assertEq(checker.namedWriter(_ctx(), AGENT, 26000001), WRITER);
+        _name(26150001, abi.encode(P1)); // changed mid-way
+        assertEq(checker.namedWriter(_ctx(), AGENT, 26150000), WRITER);
+        assertEq(checker.namedWriter(_ctx(), AGENT, LAST), P1);
+        assertEq(checker.namedWriter(_ctx(), AGENT + 1, LAST), address(0)); // another agent's key
+    }
+
+    function test_namedWriter_unsetWhenNotAnAddressOrTheOwner() public {
+        bytes[5] memory bad = [
+            bytes(""),
+            abi.encodePacked(WRITER), // 20 bytes, not abi.encode
+            abi.encode((uint256(1) << 160) | uint160(WRITER)), // past 160 bits
+            abi.encode(address(0)),
+            abi.encode(OWNER) // the registry refuses the owner as a client: it has no chain
+        ];
+        for (uint64 i; i < bad.length; ++i) {
+            _name(26000001 + i, bad[i]);
+            assertEq(checker.namedWriter(_ctx(), AGENT, 26000001 + i), address(0));
+        }
+        // an address that later becomes the owner names no chain from then on
+        _transitions();
+        _name(26100000, abi.encode(NEW_OWNER));
+        assertEq(checker.namedWriter(_ctx(), AGENT, 26100000), NEW_OWNER);
+        assertEq(checker.namedWriter(_ctx(), AGENT, LAST), address(0));
+    }
+
+    /// With the key set, the agent's income is the named writer's chain's value: a planted chain, rebuilt and reaching
+    /// further, is skipped. Unset, the reader picks among the chains it read. Changed, it is the new writer's chain.
+    function test_income_followsTheNamedWriter() public {
+        Checker.Result[] memory r = new Checker.Result[](3);
+        r[0] = _result(Checker.Status.Rebuilt, WRITER, ASSET, 1072500, 26099999);
+        r[1] = _result(Checker.Status.Sampled, P1, ASSET, 1081500, 26100005);
+        r[2] = _result(Checker.Status.Rebuilt, OTHER, ASSET, 9000000, 26300000); // planted, and further
+        address[] memory counted = _counted(ASSET);
+
+        Checker.Result memory i = checker.income(r, ASSET, counted, checker.namedWriter(_ctx(), AGENT, LAST));
+        assertEq(i.writer, OTHER); // unset: the reader's own pick among what it read
+
+        _name(26000001, abi.encode(WRITER));
+        i = checker.income(r, ASSET, counted, checker.namedWriter(_ctx(), AGENT, LAST));
+        assertEq(i.writer, WRITER);
+        assertEq(i.value, 1072500);
+
+        _name(26150001, abi.encode(P1)); // the owner names another writer
+        i = checker.income(r, ASSET, counted, checker.namedWriter(_ctx(), AGENT, LAST));
+        assertEq(i.writer, P1);
+        assertEq(uint256(i.status), uint256(Checker.Status.Sampled)); // not checked, though named
+
+        _name(26160001, abi.encode(address(0x5e7))); // a writer with no chain among these
+        i = checker.income(r, ASSET, counted, checker.namedWriter(_ctx(), AGENT, LAST));
+        assertEq(uint256(i.status), uint256(Checker.Status.NoData)); // the planted chain is still skipped
+    }
+
     // ------------------------------------------------------------- the codec, against independent encoders
 
     function testFuzz_codec_base64(bytes memory data) public pure {
@@ -1046,7 +1161,9 @@ contract IncomeStatementReaderTest is Vectors {
     function testFuzz_codec_leafHashIsTheVerifiers(IIncomeStatementVerifier.Payment memory p) public {
         IncomeStatementVerifier v = new IncomeStatementVerifier();
         assertEq(
-            Codec.leafHash(p.chainId, p.asset, p.agentId, p.payer, p.payTo, p.amount, p.paidAt, p.txHash, p.logIndex),
+            Codec.leafHash(
+                p.chainId, p.asset, p.agentId, p.owner, p.payer, p.payTo, p.amount, p.paidAt, p.txHash, p.logIndex
+            ),
             v.leafHash(p)
         );
     }

@@ -24,7 +24,16 @@ contract IncomeStatementVerifier is IIncomeStatementVerifier, IERC165 {
             bytes.concat(
                 keccak256(
                     abi.encode(
-                        p.chainId, p.asset, p.agentId, p.payer, p.payTo, p.amount, p.paidAt, p.txHash, p.logIndex
+                        p.chainId,
+                        p.asset,
+                        p.agentId,
+                        p.owner,
+                        p.payer,
+                        p.payTo,
+                        p.amount,
+                        p.paidAt,
+                        p.txHash,
+                        p.logIndex
                     )
                 )
             )
@@ -32,8 +41,9 @@ contract IncomeStatementVerifier is IIncomeStatementVerifier, IERC165 {
     }
 
     function verifyPayment(bytes32 root, bytes32[] calldata proof, Payment calldata p) external returns (bool) {
-        // A mint, a transfer to oneself or a transfer of nothing is never a leaf of a valid statement.
-        if (p.amount == 0 || p.payer == address(0) || p.payer == p.payTo) return false;
+        // A mint, a transfer to oneself, a transfer from the owner or a transfer of nothing is never a leaf of a valid
+        // statement.
+        if (p.amount == 0 || p.payer == address(0) || p.payer == p.payTo || p.payer == p.owner) return false;
         bytes32 h = leafHash(p);
         for (uint256 i; i < proof.length; ++i) {
             h = _hashPair(h, proof[i]);

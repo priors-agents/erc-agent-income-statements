@@ -4,9 +4,10 @@ Public, per-transfer income statements for ERC-8004 agents, carried as ordinary 
 Registry. A statement commits, with a Merkle root, to the incoming transfers of one ERC-20 token to the agent's
 `agentWallet` over a window of log positions, each transfer its own leaf. One writer's statements about one agent are
 chained by hash over back-to-back windows, and anyone can rebuild every leaf and total from the token's own logs and the
-identity registry's. Entries use ERC-8004's own `revenues` tag, with `x402.statement` as `tag2`, and their value is the
-cumulative total, as ERC-8004 describes `revenues`. An optional verifier contract checks one transfer against a
-statement's root on chain. No new core contract is required.
+identity registry's. The agent's owner can name the writer readers read first, under the identity's metadata key
+`incomeWriter`; a full rebuild still needs no trusted writer. Entries use ERC-8004's own `revenues` tag, with
+`x402.statement` as `tag2`, and their value is the cumulative total, as ERC-8004 describes `revenues`. An optional
+verifier contract checks one transfer against a statement's root on chain. No new core contract is required.
 
 "Income" here means gross receipts at one address in one asset, as the token's logs show them: every transfer into the
 `agentWallet` except mints, transfers of nothing and the agent's own. x402 payments, which settle as a token transfer to
@@ -45,7 +46,7 @@ agent with another address's income.
 | `src/IncomeStatementCodec.sol` | The file's canonical encoding, its `data:` URI, the leaf hash and the root |
 | `src/IncomeStatementWindows.sol` | Where windows start and end at the agent's change logs |
 | `src/IncomeStatementWriter.sol` | A reference writer: the next statement, its file, URI and `feedbackHash`, from the chain |
-| `src/IncomeStatementChecker.sol` | A reference reader: every reader rule as a check with its own error, light and full reads, and the income an agent's chains give |
+| `src/IncomeStatementChecker.sol` | A reference reader: every reader rule as a check with its own error, light and full reads, and the income an agent's chains give, from the writer the agent names when it names one |
 | `src/IChainHistory.sol`, `src/IncomeStatementTypes.sol` | The chain reads the writer and reader make, and the decoded statement |
 | `test/IncomeStatementVerifier.t.sol`, `test/Vectors.sol` | The ERC's test vectors (leaves, proofs, root, both files' exact bytes) and the verifier's tests |
 | `test/IncomeStatementReader.t.sol`, `test/mocks/Mocks.sol` | The writer and the reader against a recorded chain with wallet and owner changes, one negative test per rule |

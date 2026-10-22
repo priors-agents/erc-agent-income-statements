@@ -16,9 +16,9 @@ requires: 20, 165, 721, 8004
 This proposal defines public income statements for agents of [ERC-8004](./eip-8004.md), carried on its Reputation
 Registry. A statement commits, with a Merkle root, to the incoming transfers of one [ERC-20](./eip-20.md) token to the
 agent's ERC-8004 `agentWallet` over a window of log positions, with each transfer as its own leaf. One writer's
-statements about one agent are chained by hash over back-to-back windows. Anyone can rebuild every leaf and total from
-the token's own logs and the identity registry's, and an optional verifier contract checks one transfer against a
-statement's root on chain.
+statements about one agent are chained by hash over back-to-back windows, and the agent's owner can name, in the agent's
+ERC-8004 metadata, the writer readers read first. Anyone can rebuild every leaf and total from the token's own logs and
+the identity registry's, and an optional verifier contract checks one transfer against a statement's root on chain.
 
 Statements are ordinary `giveFeedback` entries, with `tag1` set to `revenues`, the tag ERC-8004 gives as its example of
 cumulative revenues, and `tag2` set to `x402.statement`. An entry's value is the cumulative total through the end of its
@@ -81,6 +81,7 @@ RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as de
 - **Leaf:** one payment.
 - **Statement:** the leaves of one agent in one asset over a window, posted by one writer.
 - **(writer, agent) chain:** one writer's statements about one agent, linked by `seq` and `prev`.
+- **Named writer:** the writer the agent's owner names under the metadata key `incomeWriter` (see Named writer).
 
 ### Entries
 
@@ -179,13 +180,14 @@ A leaf is one payment:
 | `tx`, `log` | the log's transaction hash, and its index in its block |
 | `block` | the log's block (a lookup aid, not committed) |
 
-The chain id, the asset, the agent and `payTo` come from the statement. The leaf hash is the one OpenZeppelin's
-`MerkleProof` expects:
+The chain id, the asset, the agent, the owner and `payTo` come from the statement. With the owner in it, a leaf alone
+shows whether it is one of the four transfers Payments leaves out. The leaf hash is the one OpenZeppelin's `MerkleProof`
+expects:
 
 ```
 leafHash = keccak256(bytes.concat(keccak256(abi.encode(
-  uint256 chainId, address asset, uint256 agentId, address payer, address payTo,
-  uint256 amount, uint64 paidAt, bytes32 txHash, uint32 logIndex))))
+  uint256 chainId, address asset, uint256 agentId, address owner, address payer,
+  address payTo, uint256 amount, uint64 paidAt, bytes32 txHash, uint32 logIndex))))
 ```
 
 Leaves are ordered by position. The root is a binary Merkle tree over the leaf hashes in that order: each pair is
@@ -251,6 +253,27 @@ A writer:
 - MUST NOT revoke a statement, nor post two statements with the same `seq` for one agent;
 - SHOULD check each file against this profile before posting it: a posted file cannot be replaced.
 
+### Named writer
+
+An agent's owner MAY name the writer whose statements readers read first, with ERC-8004's `setMetadata` under the key
+`incomeWriter`. The value is `abi.encode(address)` of the writer: 32 bytes, the address in the last 20.
+
+- A reader reads the key with `getMetadata(agentId, "incomeWriter")` at the latest block it reads.
+- A reader treats the key as unset when its value is not 32 bytes, when its first 12 bytes are not zero, or when it
+  names the zero address or the agent's owner at that block. The Reputation Registry refuses entries from the owner, so
+  the owner has no chain to name.
+- When the key is unset, a reader chooses the writers it reads (see Readers).
+- When the owner changes the key, the newly named writer is the one readers read from then on. Each chain stands alone:
+  the earlier writer's statements stay valid, as statements of another writer. A newly named writer SHOULD start its
+  seq 1 at the earlier writer's `since`, so that the agent's figures keep their history.
+- A transfer of the agent leaves the key as it is: ERC-8004 names only `agentWallet` as cleared on a transfer. A new
+  owner that wants another writer sets the key again.
+- A writer's chain counts one asset (see Statement file), so the key names a writer for one asset. A reader that counts
+  other assets for the agent MAY read other writers for them.
+- A `MetadataSet` log for `incomeWriter` is not a change log: it cuts no window.
+- The key adds no trust. A reader checks the named writer's statements as any other's, and a full rebuild needs no
+  trusted writer. The key tells readers which chain to read, and lets them skip entries planted by anyone else.
+
 ### Readers
 
 An entry, for a reader, is the fields of the registry's `NewFeedback` log for it (from a log query, or from its
@@ -285,6 +308,8 @@ transaction receipt), the block that log is in, and whether `readFeedback` repor
   figures as the agent's income past that point;
 - MUST NOT present the totals of a statement it has not rebuilt as checked. Without a rebuild they are the writer's
   claims;
+- SHOULD, when the agent names a writer (see Named writer), read that writer's statements first, and by default read
+  no statement about the agent from any other writer;
 - MUST take an agent's income in an asset from one (writer, agent) chain: its latest statement's `value`. A per-tag
   summary of `revenues` entries is not income: ERC-8004's `getSummary`, or any aggregator's mean per tag, averages
   cumulative values. A reader MUST NOT add up the income of two writers' chains about one agent in one asset, since they
@@ -319,6 +344,7 @@ interface IIncomeStatementVerifier {
         uint256 chainId;
         address asset;
         uint256 agentId;
+        address owner;
         address payer;
         address payTo;
         uint256 amount;
@@ -336,8 +362,9 @@ interface IIncomeStatementVerifier {
 
 - `leafHash(payment)` MUST return the leaf hash defined in Leaves, over the payment's fields.
 - `verifyPayment(root, proof, payment)` MUST return `true` exactly when `payment.amount` is not zero, `payment.payer` is
-  neither the zero address nor `payment.payTo`, and hashing `leafHash(payment)` with each element of `proof` in turn,
-  each pair sorted, gives `root`. It MUST NOT revert because one of these checks fails; it returns `false`.
+  none of the zero address, `payment.payTo` and `payment.owner`, and hashing `leafHash(payment)` with each element of
+  `proof` in turn, each pair sorted, gives `root`. It MUST NOT revert because one of these checks fails; it returns
+  `false`.
 - When `verifyPayment` returns `true`, it MUST emit `PaymentProven` with the payment's `agentId`, `txHash` and
   `logIndex` and the `root`. When it returns `false`, it MUST NOT emit it.
 - `verifyPayment` MUST be callable by any account. A verifier SHOULD hold no state.
@@ -372,12 +399,22 @@ posted by a writer it trusts.
 - **Every transfer in, less four.** A mint, a transfer of nothing, a transfer from `payTo` to itself and a transfer from
   the owner are not money from anyone else, and a reader can recognise them from the log and the window alone. Which
   other payers are customers is a judgement, so the leaves name the payers and leave it to readers.
+- **The owner in the leaf.** The owner is fixed for a window, and the statement already names it. In the leaf, it lets a
+  verifier refuse the owner's own transfers from the payment alone, as it refuses the other three. Top-ups from the
+  owner are probably the most common transfer into an agent's wallet that is not income; without the owner in the
+  leaf, a root that counted them would still prove them as payments on chain. The leaf also tells a contract under
+  which owner each payment arrived.
 - **A statement saves the scan, not the trust.** Anyone can recount an agent's transfers from the token's logs, so a
   statement adds no authority. It fixes a window's figures once, lets a reader check only new windows afterwards, and
   gives contracts a root to prove single transfers against.
 - **One chain's latest value.** Two writers reporting on one agent count the same transfers, so, unlike the credit
   statements of two lenders, their figures cannot be added. A per-tag mean of cumulative values, which is what generic
   summaries of feedback compute, has no meaning either.
+- **A writer the owner names, not a default set.** A facilitator sees only the payments it settled, and a statement
+  counts every transfer into `payTo`, so a facilitator has no data a reader lacks, and a full rebuild needs no trusted
+  writer. What a reader lacks is which chain to read. The registry refuses the owner as a client, so an agent cannot
+  write its own chain, but its owner can name one. Readers then skip entries planted by anyone else by default, and
+  check the named writer as any other.
 - **A Merkle root rather than a list.** It keeps the file small, it can be rebuilt from logs, and it allows
   one-transfer proofs on chain. The leaf encoding and the sorted pair hashing are OpenZeppelin's, so existing proof
   libraries verify them.
@@ -423,10 +460,10 @@ posted by a writer it trusts.
 
 ## Backwards Compatibility
 
-No backward compatibility issues found. The profile adds a `tag2` value and a file format and changes nothing in
-ERC-8004. Readers that already read `revenues` see a cumulative value in the asset's base units with the asset's
-decimals; a reader that averages `revenues` values across entries gets no meaningful figure (see Readers). Readers that
-do not know the tags ignore them.
+No backward compatibility issues found. The profile adds a `tag2` value, a metadata key and a file format and changes
+nothing in ERC-8004. Readers that already read `revenues` see a cumulative value in the asset's base units with the
+asset's decimals; a reader that averages `revenues` values across entries gets no meaningful figure (see Readers).
+Readers that do not know the tags ignore them.
 
 ## Test Cases
 
@@ -458,16 +495,16 @@ The five payments have these leaf hashes:
 
 | leaf | `paidAt` | leaf hash |
 | --- | --- | --- |
-| 0 | 1790000120 | `0xbf00438301dc7b70e4a0caa5447d4a527a805415b4fcaa066de0b060565d4c3b` |
-| 1 | 1790000120 | `0x33210cbcee8c90d1665917cdd63100a74e932504dfe3055bff07ce1b0d43094b` |
-| 2 | 1790036012 | `0x54b228bc897539f4c64435f963443794623816a2b0d4ffe01c461cee188e7ecd` |
-| 3 | 1790240000 | `0x10f7f41d50bd6d753df49da97248bd59a260ee3009043665604044722b88acf7` |
-| 4 | 1790599988 | `0x3644283ed5617a867ac848ff604cd90325a9fdc7b20e4aa9617a3a96202c72df` |
+| 0 | 1790000120 | `0x973838fd10839c33761186ef4e63069cb758e3ec534221eaa42705f06c46c4ec` |
+| 1 | 1790000120 | `0x9e191334aadc974cad9b88b02911142857fbecfb0d4db28e6d561c880dc54e60` |
+| 2 | 1790036012 | `0x04e8b3fcfeca684cb61d0f4a3d48965c91250c785218d23d20e25367df5b00e4` |
+| 3 | 1790240000 | `0xe94b8baca86013e08d72e5cbf5e8c6daafba4961cdd79c441e3e444e9735c132` |
+| 4 | 1790599988 | `0x46894c3239fd5fda0dbf685ec1e94b3b81dbc215f4b07d4e747e36530d0effbd` |
 
-Their root is `0xa154d12c570aa9dcc6f9d2d1a4fca17505844a45bbf060c612a95c0a7369aea6`, over 1,072,500 base units from four
-distinct payers. The inner nodes are `0x5e4e5486cd10dc5adbf0d1095cfb8f1e76548dd527ffdb9c0ed74a78b0c01126` (leaves 0
-and 1), `0x0efe7909d16b217d248f70a0a68e79118f77d7a4417e90e4fea509b28649468a` (leaves 2 and 3) and
-`0xa2683f308d15f4c17398cfb668a6869b83b62fc0528df85057fc4ac9ad2bfd9f` (leaves 0 to 3). The proofs are:
+Their root is `0x520ba6ddc52623d5852649d9c9237f6ad5b35794d9413bc3903741f428abf238`, over 1,072,500 base units from four
+distinct payers. The inner nodes are `0x04dbfb095919cbe6bf6dffbe366a9899d44bfd271495dc7b820f6e24d56e2830` (leaves 0
+and 1), `0x9705053cd0b8cdc5dd701db3fa3b5bc7b150cf53d42c09e1e05d1e130ae84047` (leaves 2 and 3) and
+`0x94f6220ecbb45711f1cb5c30a80950a103742d8831136ae8db6abc2efa379fda` (leaves 0 to 3). The proofs are:
 
 - leaf 0: leaf 1's hash, the node of leaves 2 and 3, leaf 4's hash;
 - leaf 1: leaf 0's hash, the node of leaves 2 and 3, leaf 4's hash;
@@ -480,18 +517,18 @@ and 1), `0x0efe7909d16b217d248f70a0a68e79118f77d7a4417e90e4fea509b28649468a` (le
 26049999, with the five leaves as its anchors. Its canonical bytes (1,736 bytes) are:
 
 ```text
-{"agentId":"9007199254740993","agentRegistry":"eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432","clientAddress":"eip155:1:0x00000000000000000000000000000000000000C1","createdAt":"2026-09-28T13:53:08Z","income":{"anchors":[{"amount":"10000","block":26000010,"log":3,"paidAt":1790000120,"payer":"0x00000000000000000000000000000000000000B1","tx":"0x00000000000000000000000000000000000000000000000000000000000000a1"},{"amount":"2500","block":26000010,"log":7,"paidAt":1790000120,"payer":"0x00000000000000000000000000000000000000b2","tx":"0x00000000000000000000000000000000000000000000000000000000000000a2"},{"amount":"1000000","block":26003001,"log":0,"paidAt":1790036012,"payer":"0x00000000000000000000000000000000000000B1","tx":"0x00000000000000000000000000000000000000000000000000000000000000a3"},{"amount":"50000","block":26020000,"log":12,"paidAt":1790240000,"payer":"0x00000000000000000000000000000000000000b3","tx":"0x00000000000000000000000000000000000000000000000000000000000000a4"},{"amount":"10000","block":26049999,"log":1,"paidAt":1790599988,"payer":"0x00000000000000000000000000000000000000B4","tx":"0x00000000000000000000000000000000000000000000000000000000000000a5"}],"asset":"eip155:1/erc20:0x00000000000000000000000000000000000a55E7","decimals":6,"owner":"0x000000000000000000000000000000000000041E","payTo":"0x0000000000000000000000000000000000000402","payers":4,"prev":null,"received":{"amount":"1072500","count":5},"root":"0xa154d12c570aa9dcc6f9d2d1a4fca17505844a45bbf060c612a95c0a7369aea6","seq":1,"since":26000000,"v":"erc8004-income/v1","window":{"fromBlock":26000000,"fromLog":0,"toBlock":26049999,"toLog":null,"toTime":1790599988}},"tag1":"revenues","tag2":"x402.statement","value":"1072500","valueDecimals":6}
+{"agentId":"9007199254740993","agentRegistry":"eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432","clientAddress":"eip155:1:0x00000000000000000000000000000000000000C1","createdAt":"2026-09-28T13:53:08Z","income":{"anchors":[{"amount":"10000","block":26000010,"log":3,"paidAt":1790000120,"payer":"0x00000000000000000000000000000000000000B1","tx":"0x00000000000000000000000000000000000000000000000000000000000000a1"},{"amount":"2500","block":26000010,"log":7,"paidAt":1790000120,"payer":"0x00000000000000000000000000000000000000b2","tx":"0x00000000000000000000000000000000000000000000000000000000000000a2"},{"amount":"1000000","block":26003001,"log":0,"paidAt":1790036012,"payer":"0x00000000000000000000000000000000000000B1","tx":"0x00000000000000000000000000000000000000000000000000000000000000a3"},{"amount":"50000","block":26020000,"log":12,"paidAt":1790240000,"payer":"0x00000000000000000000000000000000000000b3","tx":"0x00000000000000000000000000000000000000000000000000000000000000a4"},{"amount":"10000","block":26049999,"log":1,"paidAt":1790599988,"payer":"0x00000000000000000000000000000000000000B4","tx":"0x00000000000000000000000000000000000000000000000000000000000000a5"}],"asset":"eip155:1/erc20:0x00000000000000000000000000000000000a55E7","decimals":6,"owner":"0x000000000000000000000000000000000000041E","payTo":"0x0000000000000000000000000000000000000402","payers":4,"prev":null,"received":{"amount":"1072500","count":5},"root":"0x520ba6ddc52623d5852649d9c9237f6ad5b35794d9413bc3903741f428abf238","seq":1,"since":26000000,"v":"erc8004-income/v1","window":{"fromBlock":26000000,"fromLog":0,"toBlock":26049999,"toLog":null,"toTime":1790599988}},"tag1":"revenues","tag2":"x402.statement","value":"1072500","valueDecimals":6}
 ```
 
 and their `keccak256`, the entry's `feedbackHash`, is
-`0x50ffce3f8484f7bddab41fdebba65a516562797d2a08c918e3d5a5bf21fcb6e6`. Seq 2 covers blocks 26050000 to 26099999, in
+`0xbf23a8780b9fbdf0e12b68a92d3f66556c4c6d0ce6e15c5e0df1810af6e368ee`. Seq 2 covers blocks 26050000 to 26099999, in
 which `payTo` received nothing. It chains to seq 1 and keeps its cumulative value. Its canonical bytes (838 bytes) are:
 
 ```text
-{"agentId":"9007199254740993","agentRegistry":"eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432","clientAddress":"eip155:1:0x00000000000000000000000000000000000000C1","createdAt":"2026-10-05T12:33:08Z","income":{"anchors":[],"asset":"eip155:1/erc20:0x00000000000000000000000000000000000a55E7","decimals":6,"owner":"0x000000000000000000000000000000000000041E","payTo":"0x0000000000000000000000000000000000000402","payers":0,"prev":"0x50ffce3f8484f7bddab41fdebba65a516562797d2a08c918e3d5a5bf21fcb6e6","received":{"amount":"0","count":0},"root":"0x0000000000000000000000000000000000000000000000000000000000000000","seq":2,"since":26000000,"v":"erc8004-income/v1","window":{"fromBlock":26050000,"fromLog":0,"toBlock":26099999,"toLog":null,"toTime":1791199988}},"tag1":"revenues","tag2":"x402.statement","value":"1072500","valueDecimals":6}
+{"agentId":"9007199254740993","agentRegistry":"eip155:1:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432","clientAddress":"eip155:1:0x00000000000000000000000000000000000000C1","createdAt":"2026-10-05T12:33:08Z","income":{"anchors":[],"asset":"eip155:1/erc20:0x00000000000000000000000000000000000a55E7","decimals":6,"owner":"0x000000000000000000000000000000000000041E","payTo":"0x0000000000000000000000000000000000000402","payers":0,"prev":"0xbf23a8780b9fbdf0e12b68a92d3f66556c4c6d0ce6e15c5e0df1810af6e368ee","received":{"amount":"0","count":0},"root":"0x0000000000000000000000000000000000000000000000000000000000000000","seq":2,"since":26000000,"v":"erc8004-income/v1","window":{"fromBlock":26050000,"fromLog":0,"toBlock":26099999,"toLog":null,"toTime":1791199988}},"tag1":"revenues","tag2":"x402.statement","value":"1072500","valueDecimals":6}
 ```
 
-and their `keccak256` is `0x8ef0be20ee12a6817b2d306d5e1dc95063ef35adba8fd4ce22f54edabb0ceb70`. The reference writer
+and their `keccak256` is `0xeea2227a6c70110c0d147bbd5b8bb7a80ea6ea21a3e0dab7c1545db0f8488520`. The reference writer
 produces both files byte for byte, and their URIs equal the prefix followed by an independent base64 encoder's output.
 
 **Windows cut at change logs.** After seq 2, the agent's `agentWallet` moves to `0x0000000000000000000000000000000000004030`
@@ -547,23 +584,29 @@ block 26200000: not the sum or the mean of the six values. It rejects, each with
   anchors for four payments, an anchor outside the window, the owner's own transfer as an anchor, and an anchor at a log
   that does not exist;
 - in a full check only: seq 1 rewritten without P2's 2500 (four leaves, a root over them, every light check passing);
-  seq 1 with five payers, an amount 1 higher, another root, or a count of 6; and seq 1 whose anchors are the first four
-  leaves instead of the latest.
+  seq 1 rewritten with the owner's 500000 as a sixth leaf (a root over the six, every light check passing), against
+  whose root the verifier refuses the owner's transfer and proves the five payments; seq 1 with five payers, an amount
+  1 higher, another root, or a count of 6; and seq 1 whose anchors are the first four leaves instead of the latest.
 
 Given chain results, it reports one chain's value, never the sum across writers (two writers reporting 1072500 give
 1072500), a rebuilt chain over a sampled one, the furthest of two rebuilt chains, a sampled chain as not checked, no
 data for no chain or a failed one, and nothing for an asset the reader does not count. Of two writers, one with a
 revoked entry, it fails that one and rebuilds the other.
 
+It reads no named writer while `incomeWriter` is unset, empty, 20 bytes long, past 160 bits, the zero address or the
+owner, and none once the address it names becomes the owner. It reads the named writer from the block the key is set
+in, and the new one after the owner changes it. With a named writer, it reports that writer's chain, even sampled,
+over a chain from another writer that is rebuilt and reaches further, and no data when the named writer has no chain.
+
 **The verifier.** A conforming verifier passes these cases:
 
-- `leafHash` returns each leaf hash above for its payment, and equals the double `keccak256` of the nine fields
+- `leafHash` returns each leaf hash above for its payment, and equals the double `keccak256` of the ten fields
   `abi.encode`d in order.
 - The five payments, in the order above, give the root above; the root of no payment is `bytes32(0)`.
 - `verifyPayment` returns `true` for each leaf with its proof and emits `PaymentProven` with the agent, the root, the
   transaction hash and the log index.
 - A forged leaf fails: leaf 2 claimed with an amount of 10000000 returns `false` with leaf 2's proof, and so does leaf
-  2 with any one of its nine fields changed.
+  2 with any one of its ten fields changed.
 - Leaf 0 for agent `9007199254740994` or `9007199254740992` returns `false`.
 - A wrong proof fails: leaf 0 with one sibling changed, with leaf 2's proof, with its last sibling dropped, or with no
   proof, returns `false`.
@@ -571,11 +614,11 @@ revoked entry, it fails that one and rebuilds the other.
   statement's `feedbackHash`, returns `false`.
 - A failing call does not revert and emits no event.
 - The result does not depend on the caller: leaves 0 to 2 verify when three unrelated accounts call.
-- The transfer of zero, the mint and the transfer from `payTo` to itself, as payments, return `false` against a root
-  whose tree holds their leaf hash next to leaf 0, and emit nothing; the same tree proves leaf 0.
+- The transfer of zero, the mint, the transfer from `payTo` to itself and the owner's transfer, as payments, return
+  `false` against a root whose tree holds their leaf hash next to leaf 0, and emit nothing; the same tree proves leaf 0.
 - A tree of one payment has that payment's leaf hash as its root, and an empty proof verifies.
 - In random trees of 1 to 40 payments, every leaf verifies with its proof, and fails once its amount changes.
-- `supportsInterface` returns `true` for `0xfc162870`, the interface identifier of `IIncomeStatementVerifier`, and for
+- `supportsInterface` returns `true` for `0xcc3df75f`, the interface identifier of `IIncomeStatementVerifier`, and for
   `0x01ffc9a7`, and `false` for `0xffffffff`.
 
 ## Reference Implementation
@@ -589,12 +632,12 @@ These contracts accompany this proposal with their tests. None has a dependency.
   at the agent's next change log, and returns the file, its URI and its `feedbackHash`, ready for `giveFeedback`.
 - `IncomeStatementChecker`: a reference reader. Each reader rule is a check that fails with its own error. It reads all
   of one writer's entries for an agent, picks the statements among them, and checks them light or full; it reads
-  several writers so that one failure fails only that writer, and picks an agent's income in an asset from the results.
-- `IChainHistory`: the chain reads the writer and the checker make: block times, the registry's `ownerOf` and
-  `getAgentWallet` at the end of a block, the agent's change logs, the asset's `Transfer` logs, and the Reputation
-  Registry's `getLastIndex`. A contract cannot
-  read past blocks, so a reader implements it over an RPC endpoint and runs the checker with `eth_call`; the tests
-  implement it with a recorded chain.
+  several writers so that one failure fails only that writer, reads the writer the agent names, and picks an agent's
+  income in an asset from the results, from the named writer's chain when there is one.
+- `IChainHistory`: the chain reads the writer and the checker make: block times, the registry's `ownerOf`,
+  `getAgentWallet` and `getMetadata` at the end of a block, the agent's change logs, the asset's `Transfer` logs, and
+  the Reputation Registry's `getLastIndex`. A contract cannot read past blocks, so a reader implements it over an RPC
+  endpoint and runs the checker with `eth_call`; the tests implement it with a recorded chain.
 
 ## Security Considerations
 
@@ -604,6 +647,10 @@ These contracts accompany this proposal with their tests. None has a dependency.
   - how many distinct payers there are, and the share of the largest;
   - the payers' own age and history, and whether their funds came from the agent's owner or from the agent;
   - whether the money comes back to the payers afterwards.
+- **Settlement contracts as payers.** `payer` is the `Transfer` log's `from`, so when settlement goes through an escrow,
+  a batching contract or a fee splitter in front of `payTo`, every leaf names that contract: an honest agent then looks
+  like it has one customer, and a self-payment hides in the contract's flow. Readers SHOULD resolve known settlement
+  contracts to the original payer, or treat that payer as unknown in the signals above.
 - **Transfers that are not sales.** Loan proceeds sent to `payTo`, refunds, and transfers from the owner's other
   addresses all meet the payment rules. A lender that sizes credit on income SHOULD leave out payers it knows to be
   lenders, itself included.
@@ -615,11 +662,13 @@ These contracts accompany this proposal with their tests. None has a dependency.
   without a log inside the last, partial block of a window that ends just before a change log.
 - **The asset is the writer's choice.** Any contract can emit `Transfer` logs, so statements about a worthless token
   rebuild exactly. Readers count only assets they know, and price them.
-- **Income follows the identity.** A buyer of an agent gets the record its earlier owners earned. Each window names its
-  owner, and readers SHOULD weigh income received under the current owner.
+- **Income follows the identity.** A buyer of an agent gets the record its earlier owners earned. Each window and each
+  leaf names its owner, and readers SHOULD weigh income received under the current owner.
 - **Gross receipts.** A statement shows what came in, not what the agent spent to earn it.
 - **Light checks are samples.** A statement with real anchors and invented totals passes them. A light result is the
   writer's claim (see Readers).
+- **A named writer is the owner's choice.** The key tells readers which chain to read, not that the chain is right.
+  Until a reader rebuilds them, a named writer's totals are claims made for the agent by a writer its owner chose.
 - **The verifier proves membership only.** It cannot tell a statement's root from any other hash. A contract that relies
   on it holds roots it trusts.
 - **Reorgs.** A statement over unfinalized blocks can name logs that later disappear. Windows SHOULD end at final
@@ -633,8 +682,8 @@ These contracts accompany this proposal with their tests. None has a dependency.
   may need an archive endpoint.
 - **Planted entries.** `giveFeedback` is open to anyone, so anyone can post valid-looking statements about an agent from
   as many addresses as they like, each costing a reader that checks it a few requests. A reader that names the writers
-  it reads never reads the others. A reader that reads every writer SHOULD cap the requests of one read, all writers
-  together.
+  it reads never reads the others, and a reader that follows an agent's named writer reads one writer about that agent
+  by default. A reader that reads every writer SHOULD cap the requests of one read, all writers together.
 
 ## Copyright
 

@@ -11,6 +11,7 @@ interface IIncomeStatementVerifier {
         uint256 chainId; // the chain the asset and the log are on
         address asset; // the ERC-20 token that emitted the log
         uint256 agentId;
+        address owner; // the agent's owner during the statement's window
         address payer; // the log's `from`
         address payTo; // the log's `to`: the agent's agentWallet during the statement's window
         uint256 amount; // the log's `value`, in the asset's base units

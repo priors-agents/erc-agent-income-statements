@@ -26,6 +26,9 @@ contract IncomeStatementChecker {
         AssetNotCounted // the reader does not count that asset
     }
 
+    /// @notice The identity registry's metadata key under which an agent's owner names its writer.
+    string internal constant INCOME_WRITER_KEY = "incomeWriter";
+
     /// @notice The reader's setting: the identity registry its Reputation Registry reports (`getIdentityRegistry()`),
     ///         that registry's chain, the Reputation Registry, and the chain reads.
     struct Context {
@@ -228,6 +231,7 @@ contract IncomeStatementChecker {
                 s.chainId,
                 s.asset,
                 s.agentId,
+                s.owner,
                 leaves[i].payer,
                 s.payTo,
                 leaves[i].amount,
@@ -376,10 +380,33 @@ contract IncomeStatementChecker {
         }
     }
 
-    /// @notice The agent's income in `asset`: one chain's value, never a sum or an average of several. A rebuilt
-    ///         chain is preferred to a sampled one, and among those the one that reaches furthest. `NoData` when no
-    ///         chain qualifies, `AssetNotCounted` when the reader does not count `asset`.
+    // ------------------------------------------------------------- the writer the agent names, and its income
+
+    /// @notice The writer the agent's owner names under `incomeWriter`, read at the end of `atBlock`. The zero address
+    ///         when the key is unset: when its value is not 32 bytes, has a nonzero top 12 bytes, or names the zero
+    ///         address or the agent's owner at that block, whom the Reputation Registry refuses as a client.
+    function namedWriter(Context memory ctx, uint256 agentId, uint64 atBlock) public view returns (address writer) {
+        bytes memory v = ctx.history.metadataAt(ctx.identityRegistry, agentId, INCOME_WRITER_KEY, atBlock);
+        if (v.length != 32 || abi.decode(v, (uint256)) >> 160 != 0) return address(0);
+        writer = abi.decode(v, (address));
+        if (writer == ctx.history.ownerAt(ctx.identityRegistry, agentId, atBlock)) return address(0);
+    }
+
+    /// @notice `income` for a reader that chose its writers itself: no named writer.
     function income(Result[] memory results, address asset, address[] memory countedAssets)
+        public
+        pure
+        returns (Result memory)
+    {
+        return income(results, asset, countedAssets, address(0));
+    }
+
+    /// @notice The agent's income in `asset`: one chain's value, never a sum or an average of several. When the agent
+    ///         names a writer (`named`, from `namedWriter`), only that writer's chain counts, so a chain planted by
+    ///         anyone else is skipped. Otherwise a rebuilt chain is preferred to a sampled one, and among those the one
+    ///         that reaches furthest. `NoData` when no chain qualifies, `AssetNotCounted` when the reader does not
+    ///         count `asset`.
+    function income(Result[] memory results, address asset, address[] memory countedAssets, address named)
         public
         pure
         returns (Result memory best)
@@ -396,6 +423,7 @@ contract IncomeStatementChecker {
         for (uint256 i; i < results.length; ++i) {
             Result memory r = results[i];
             if (r.asset != asset || (r.status != Status.Sampled && r.status != Status.Rebuilt)) continue;
+            if (named != address(0) && r.writer != named) continue;
             if (best.status == Status.NoData || _better(r, best)) best = r;
         }
     }

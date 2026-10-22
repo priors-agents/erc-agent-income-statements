@@ -37,6 +37,12 @@ interface IChainHistory {
     /// @notice `getAgentWallet(agentId)` at the end of a block.
     function walletAt(address registry, uint256 agentId, uint64 blockNumber) external view returns (address);
 
+    /// @notice `getMetadata(agentId, key)` at the end of a block.
+    function metadataAt(address registry, uint256 agentId, string calldata key, uint64 blockNumber)
+        external
+        view
+        returns (bytes memory);
+
     /// @notice The agent's change logs in blocks `fromBlock` to `toBlock`, in log order.
     function changeLogs(address registry, uint256 agentId, uint64 fromBlock, uint64 toBlock)
         external
