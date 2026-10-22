@@ -19,9 +19,11 @@ be read after that profile. The ERC text repeats what it needs, so that it stand
 
 **Status: draft, not submitted.** The text is in
 [`ERCS/erc-draft_agent_income_statements.md`](ERCS/erc-draft_agent_income_statements.md). Its `eip: 99909` is a
-placeholder: the ERC editors assign the real number when the pull request is opened on ethereum/ERCs. Discussion: raised
-first on ERC-8434's thread, before a thread of its own ([post
-30](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/30)).
+placeholder: the ERC editors assign the real number when the pull request is opened on ethereum/ERCs. Discussion:
+[its thread on Ethereum Magicians](https://ethereum-magicians.org/t/erc-tba-agent-income-statements/30047), opened on
+2026-10-22 at the invitation of ERC-8434's author, after it was raised first on ERC-8434's thread ([post
+30](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/30), answered in [post
+32](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/32)).
 
 ## Why
 
