@@ -129,7 +129,8 @@ ERC-8004 emits `MetadataSet` when metadata is set, and names it for `agentWallet
 name the event for `setAgentWallet`, `unsetAgentWallet` or the clearing of the wallet on a transfer; its reference
 registry emits `MetadataSet(agentId, "agentWallet", ...)` in all three cases. This profile applies only to identity
 registries that emit it for every change of the wallet. A writer MUST NOT write statements about an agent of a registry
-that does not.
+that does not. Agent identity documents that rebuild an address's intervals from the same logs depend on the same event,
+and an ERC-8004 text that required it for every wallet change would serve both.
 
 ### Payments
 
@@ -391,10 +392,14 @@ posted by a writer it trusts.
 - **Next to agent identity documents.** Agent identity documents under discussion can carry facets about an agent
   address over a window, including its observed on-chain finances as aggregate figures recomputed under a pinned
   algorithm, and recommend that the address be the agent's `agentWallet`. A statement is then about the same address.
-  - A facet type in the writer's own namespace can point at an agent's statements through the ERC-8004 Reputation
-    Registry. Such a resolver is defined by `tag1`, `revenues`; `tag2`, `x402.statement`, is an extra member it may
-    carry, and a generic resolver need not filter on it. This is why a per-tag mean of `revenues` is not income (see
-    Readers).
+  - A facet type in the identity document's open namespace (`aid:behavior/<name>/v1` in the proposal that names it)
+    can point at an agent's statements through the ERC-8004 Reputation Registry. Such a resolver is defined by `tag1`,
+    `revenues`; `tag2`, `x402.statement`, is an extra member it may carry, and a generic resolver need not filter on it.
+  - Listing such a facet attests that a statement is in its interval and current or historical for that address, not
+    the statement's figures: those stand on the statement's Merkle root and its chain.
+  - Statements are cumulative within a chain, so a document reads them as the latest statement per writer through that
+    facet. A facet that averages a tag's values, as a score-like reputation summary does, is not the place for them:
+    a mean of cumulative figures is not income (see Readers).
   - An observed-finance algorithm can also take statements as its input.
   - Those documents attribute evidence by a facet's observation time inside an authority interval, not by the period it
     is about. A facet issuer that points at a statement therefore sets the facet's period to the statement's window and
