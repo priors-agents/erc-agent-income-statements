@@ -404,6 +404,15 @@ posted by a writer it trusts.
   owner are probably the most common transfer into an agent's wallet that is not income; without the owner in the
   leaf, a root that counted them would still prove them as payments on chain. The leaf also tells a contract under
   which owner each payment arrived.
+- **No class per leaf.** Gross receipts mix sales with loan draws, swap proceeds, bridge fills and the owner's own
+  money, and a reader that wants income has to tell them apart. A class per leaf (customer, loan, swap, bridge, owner,
+  self) written by the writer would not do it. A file carries its root and a few anchors, not its leaves, so a class for
+  every leaf would have to be committed in the leaf hash, and a root could then no longer be rebuilt from the logs: a
+  full rebuild would need the writer's classes as input, and `verifyPayment` would prove a class no log supports.
+  Outside the hash, a class would reach the anchors only. Either way it is the claim of a writer the owner may have
+  named, and the owner is the one that gains when its own money is called a customer's. Each reader derives the kinds
+  instead, from the chain and the addresses it knows (see Security Considerations), and can extend its lists without
+  any statement being written again.
 - **A statement saves the scan, not the trust.** Anyone can recount an agent's transfers from the token's logs, so a
   statement adds no authority. It fixes a window's figures once, lets a reader check only new windows afterwards, and
   gives contracts a root to prove single transfers against.
@@ -467,7 +476,8 @@ Readers that do not know the tags ignore them.
 
 ## Test Cases
 
-The reference implementation's tests check every value and case below. The vectors use chain id 1; the asset
+The reference implementation's tests check every value and case below. Except for the payment on chain at the end,
+the vectors use chain id 1; the asset
 `0x00000000000000000000000000000000000a55E7`, with 6 decimals; agent `9007199254740993` (2^53 + 1, so that an id read as
 a floating-point number fails); the owner `0x000000000000000000000000000000000000041E`; and `payTo`
 `0x0000000000000000000000000000000000000402`. The payers are P1 `0x00000000000000000000000000000000000000B1`, P2
@@ -621,6 +631,20 @@ over a chain from another writer that is rebuilt and reaches further, and no dat
 - `supportsInterface` returns `true` for `0xcc3df75f`, the interface identifier of `IIncomeStatementVerifier`, and for
   `0x01ffc9a7`, and `false` for `0xffffffff`.
 
+**A payment on chain.** On Robinhood Chain (chain id 4663), agent 8811 of the identity registry
+`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` was minted at log 1 of block 89385625 to
+`0xF5858D7Ea59b4fB176925Df77D332a43e786Bb65`, and its `agentWallet` set to that same address at log 4. The agent has no
+other change log before block 94630540, whose time is 1792621780. In that block, transaction
+`0x1921a861077692f32b64812f811c7afc3c400822d11fb7ae4883a1ade48ea601` settles an x402 payment with ERC-3009's
+`transferWithAuthorization` on USDG, `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (6 decimals): the token's
+`AuthorizationUsed` is log 1, and log 2 is a `Transfer` of 1000000 from `0x33d6112f2F3BCD2a476bD9C13208E4C632bE2d0a`
+to the wallet. The owner and `payTo` are one address and the payer is neither, so the transfer is a payment. Its leaf
+hash is `0xf87837f67578cc0593869d5409d2310e50e12de8c3da89b92a5e6cd45805b12f`. It is the only payment of the window
+from (94630540, 0) to the end of block 94630540, so its leaf hash is that window's root, and `verifyPayment` proves it
+with an empty proof. Given the agent's two change logs and the token's transfers to the wallet, the reference writer writes that
+window with that root. With the owner as its payer, the same transfer fails. No window starts before block 89385625:
+the 5000000 that reached the wallet at log 2 of block 89378384, before the mint, is in no statement.
+
 ## Reference Implementation
 
 These contracts accompany this proposal with their tests. None has a dependency.
@@ -648,12 +672,28 @@ These contracts accompany this proposal with their tests. None has a dependency.
   - the payers' own age and history, and whether their funds came from the agent's owner or from the agent;
   - whether the money comes back to the payers afterwards.
 - **Settlement contracts as payers.** `payer` is the `Transfer` log's `from`, so when settlement goes through an escrow,
-  a batching contract or a fee splitter in front of `payTo`, every leaf names that contract: an honest agent then looks
-  like it has one customer, and a self-payment hides in the contract's flow. Readers SHOULD resolve known settlement
-  contracts to the original payer, or treat that payer as unknown in the signals above.
-- **Transfers that are not sales.** Loan proceeds sent to `payTo`, refunds, and transfers from the owner's other
-  addresses all meet the payment rules. A lender that sizes credit on income SHOULD leave out payers it knows to be
-  lenders, itself included.
+  a batching contract, a fee splitter, a bridge or a solver in front of `payTo`, every leaf names that contract or the
+  solver's address: an honest agent then looks like it has one customer, and a self-payment hides in the contract's
+  flow. A bridge or solver fill can be a lone `Transfer` from the solver, with nothing in its transaction to name who
+  paid on the other chain. Readers SHOULD resolve known settlement contracts, bridges and solvers to the original payer,
+  or treat that payer as unknown in the signals above.
+- **The owner's other addresses.** The payment rules leave out transfers from the owner's own address only. Money the
+  owner sends from another of its addresses, or bridges from another chain through a solver, meets them, and by the log
+  alone it cannot be told from a payer's. Readers that want income SHOULD treat addresses linked to the owner as the
+  owner's: addresses whose funds came from the owner or from `payTo`, and a bridge or solver fill that relays a transfer
+  the owner, or such an address, made on another chain.
+- **Transfers that are not sales.** Loan draws, swap proceeds, refunds and the owner's money all meet the payment rules,
+  and no leaf says which it is (see Rationale). A reader that wants income derives the kind of each payment from the
+  chain and from the addresses it knows, and a lender that sizes credit on income SHOULD leave out payers it knows to be
+  lenders, itself included:
+  - a loan draw is a `Transfer` from a lending pool, usually with the pool's own event in the same transaction;
+  - swap proceeds are a `Transfer` from a DEX pool or a pool manager, with its swap event in the same transaction;
+  - a bridge or solver fill is a `Transfer` from the bridge's contract or the solver's address, resolved as above;
+  - the owner's money, and a test buyer the owner funded, come from addresses linked to the owner, as above;
+  - a `Transfer` in a transaction that `payTo` or the owner sent was pulled by the agent: a swap, a loan draw or a
+    claim from an escrow, which the transaction's other logs tell apart;
+  - an ERC-3009 `AuthorizationUsed` log of the asset, by the payer, in the same transaction shows that the payer signed
+    the transfer, not that the payer is a customer: an owner's test buyer settles the same way.
 - **Another address's income.** Readers check `payTo` against the registry and the window against the agent's change
   logs, so a writer cannot count transfers to an address that was not the agent's `agentWallet` when they arrived. The
   cuts rely on the registry emitting `MetadataSet` for every change of the wallet, which this profile requires. Against
