@@ -18,11 +18,11 @@ This proposal follows the ERC-8004 credit history profile (`docs/ERC-8004-CREDIT
 and reuses its encoding: canonical JSON, `data:` URIs, chained windows, Merkle roots, light and full checks. It should
 be read after that profile. The ERC text repeats what it needs, so that it stands alone.
 
-**Status: draft, not submitted.** The text is in
+**Status: draft, submitted as [ethereum/ERCs#2102](https://github.com/ethereum/ERCs/pull/2102).** The text is in
 [`ERCS/erc-draft_agent_income_statements.md`](ERCS/erc-draft_agent_income_statements.md). Its `eip: 99909` is a
-placeholder: the ERC editors assign the real number when the pull request is opened on ethereum/ERCs. Discussion:
-[its thread on Ethereum Magicians](https://ethereum-magicians.org/t/erc-tba-agent-income-statements/30047), opened on
-2026-10-22 at the invitation of ERC-8434's author, after it was raised first on ERC-8434's thread ([post
+placeholder until the ERC editors assign a number. Discussion: [its thread on Ethereum
+Magicians](https://ethereum-magicians.org/t/erc-tba-agent-income-statements/30047), opened on 2026-10-22 at the
+invitation of ERC-8434's author, after it was raised first on ERC-8434's thread ([post
 30](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/30), answered in [post
 32](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/32)).
 
