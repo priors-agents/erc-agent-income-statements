@@ -1,4 +1,4 @@
-# Agent Income Statements (draft ERC)
+# ERC-8458: Agent Income Statements (draft)
 
 Public, per-transfer income statements for ERC-8004 agents, carried as ordinary entries of the ERC-8004 Reputation
 Registry. A statement commits, with a Merkle root, to the incoming transfers of one ERC-20 token to the agent's
@@ -19,9 +19,8 @@ and reuses its encoding: canonical JSON, `data:` URIs, chained windows, Merkle r
 be read after that profile. The ERC text repeats what it needs, so that it stands alone.
 
 **Status: draft, submitted as [ethereum/ERCs#2102](https://github.com/ethereum/ERCs/pull/2102).** The text is in
-[`ERCS/erc-draft_agent_income_statements.md`](ERCS/erc-draft_agent_income_statements.md). Its `eip: 99909` is a
-placeholder until the ERC editors assign a number. Discussion: [its thread on Ethereum
-Magicians](https://ethereum-magicians.org/t/erc-tba-agent-income-statements/30047), opened on 2026-10-22 at the
+[`ERCS/erc-8458.md`](ERCS/erc-8458.md). The editors assigned it ERC-8458 on 2026-10-27. Discussion: [its thread on Ethereum
+Magicians](https://ethereum-magicians.org/t/erc-8458-agent-income-statements/30047), opened on 2026-10-22 at the
 invitation of ERC-8434's author, after it was raised first on ERC-8434's thread ([post
 30](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/30), answered in [post
 32](https://ethereum-magicians.org/t/erc-8434-agent-identity-aid/29805/32)).
@@ -40,7 +39,7 @@ agent with another address's income.
 
 | Path | What |
 |---|---|
-| `ERCS/erc-draft_agent_income_statements.md` | The ERC text, in the ethereum/ERCs template |
+| `ERCS/erc-8458.md` | The ERC text, in the ethereum/ERCs template |
 | `src/IIncomeStatementVerifier.sol` | The optional verifier's interface |
 | `src/IncomeStatementVerifier.sol` | A reference verifier (not audited) |
 | `src/IncomeStatementCodec.sol` | The file's canonical encoding, its `data:` URI, the leaf hash and the root |
